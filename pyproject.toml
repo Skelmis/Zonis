@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "zonis"
 version = "0.1.0"
-description = ""
+description = "Agnostic IPC for Python programs "
 authors = ["skelmis <ethan@koldfusion.xyz>"]
 readme = "README.md"
 
@@ -24,3 +24,5 @@ furo = "^2022.9.29"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.poetry_bumpversion.file."zonis/__init__.py"]
