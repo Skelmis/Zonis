@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "zonis"
-version = "0.1.0"
+version = "0.2.0"
 description = "Agnostic IPC for Python programs "
 authors = ["skelmis <ethan@koldfusion.xyz>"]
 readme = "README.md"

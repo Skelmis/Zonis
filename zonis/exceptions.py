@@ -13,7 +13,7 @@ class BaseZonisException(Exception):
 
 class DuplicateConnection(BaseZonisException):
     """You have attempted to connect with a duplicated identifier.
-    Please try again with a unique one."""
+    Please try again with a unique one or provide the correct override key."""
 
 
 class DuplicateRoute(BaseZonisException):

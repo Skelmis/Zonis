@@ -1,13 +1,28 @@
 import json
-from typing import Dict, Literal, Any
+import secrets
+from typing import Dict, Literal, Any, cast, Optional
 
-from zonis import Packet, UnknownClient, RequestFailed, BaseZonisException
-from zonis.packet import RequestPacket
+from zonis import (
+    Packet,
+    UnknownClient,
+    RequestFailed,
+    BaseZonisException,
+    DuplicateConnection,
+)
+from zonis.packet import RequestPacket, IdentifyPacket
 
 
 class Server:
-    def __init__(self, *, using_fastapi_websockets: bool = False):
+    def __init__(
+        self,
+        *,
+        using_fastapi_websockets: bool = False,
+        override_key: Optional[str] = None,
+    ):
         self._connections = {}
+        self._override_key: Optional[str] = (
+            override_key if override_key is not None else secrets.token_hex(64)
+        )
         self.using_fastapi_websockets: bool = using_fastapi_websockets
 
     def disconnect(self, identifier: str):
@@ -78,21 +93,33 @@ class Server:
         return results
 
     async def parse_identify(self, packet: Packet, websocket) -> str:
-        identifier: str = packet["identifier"]
-        ws_type: Literal["IDENTIFY"] = packet["type"]
-        if ws_type != "IDENTIFY":
-            await websocket.close(
-                code=3001, reason=f"Expected IDENTIFY, received {ws_type}"
+        try:
+            identifier: str = packet.get("identifier")
+            ws_type: Literal["IDENTIFY"] = packet["type"]
+            if ws_type != "IDENTIFY":
+                await websocket.close(
+                    code=4101, reason=f"Expected IDENTIFY, received {ws_type}"
+                )
+                raise BaseZonisException(
+                    f"Unexpected ws response type, expected IDENTIFY, received {ws_type}"
+                )
+
+            packet: IdentifyPacket = cast(IdentifyPacket, packet)
+            override_key = packet["data"]["override_key"] if "data" in packet else None
+
+            if identifier in self._connections and (
+                not override_key or override_key != self._override_key
+            ):
+                await websocket.close(
+                    code=3000, reason="Duplicate identifier on IDENTIFY"
+                )
+                raise DuplicateConnection("Identify failed.")
+
+            self._connections[identifier] = websocket
+            await self._send(
+                json.dumps(Packet(identifier=identifier, type="IDENTIFY", data=None)),
+                websocket,
             )
-            raise BaseZonisException("Identify failed.")
-
-        if identifier in self._connections:
-            await websocket.close(code=3000, reason="Duplicate identifier on IDENTIFY")
-            raise BaseZonisException("Identify failed.")
-
-        self._connections[identifier] = websocket
-        await self._send(
-            json.dumps(Packet(identifier=identifier, type="IDENTIFY", data=None)),
-            websocket,
-        )
-        return identifier
+            return identifier
+        except Exception as e:
+            raise BaseZonisException("Identify failed") from e
