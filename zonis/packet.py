@@ -8,7 +8,7 @@ from zonis.exceptions import (
 
 # Closure codes can be between 3000-4999
 custom_close_codes: Dict[int, Type[BaseZonisException]] = {
-    3000: DuplicateConnection,
+    4102: DuplicateConnection,
     3001: UnhandledWebsocketType,
 }
 
@@ -25,10 +25,11 @@ class RequestPacket(TypedDict):
 
 
 class IdentifyDataPacket(TypedDict):
-    override_key: str
+    override_key: Optional[str]
+    secret_key: str
 
 
 class IdentifyPacket(TypedDict):
     identifier: str
     type: Literal["IDENTIFY"]
-    data: Optional[IdentifyDataPacket]
+    data: IdentifyDataPacket

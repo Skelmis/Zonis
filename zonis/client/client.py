@@ -7,7 +7,12 @@ import websockets
 from websockets.exceptions import WebSocketException, ConnectionClosed
 
 from zonis import Packet, DuplicateRoute
-from zonis.packet import custom_close_codes, RequestPacket
+from zonis.packet import (
+    custom_close_codes,
+    RequestPacket,
+    IdentifyDataPacket,
+    IdentifyPacket,
+)
 
 log = logging.getLogger(__name__)
 
@@ -33,6 +38,8 @@ class Client:
         url: str = "ws://localhost",
         port: Optional[int] = None,
         identifier: str = "DEFAULT",
+        secret_key: str = "",
+        override_key: Optional[str] = None,
     ):
         url = f"{url}:{port}" if port else url
         url = (
@@ -44,6 +51,8 @@ class Client:
         self.identifier: Optional[str] = identifier
         self._connection_future: asyncio.Future = asyncio.Future()
 
+        self._secret_key: str = secret_key
+        self._override_key: str = override_key
         self._routes: Dict[str, Callable] = {}
 
     def route(self, route_name: Optional[str] = None):
@@ -74,9 +83,14 @@ class Client:
     async def _connect(self):
         try:
             async with websockets.connect(self._url) as websocket:
+                idp = IdentifyDataPacket(
+                    secret_key=self._secret_key, override_key=self._override_key
+                )
                 await websocket.send(
                     json.dumps(
-                        Packet(identifier=self.identifier, type="IDENTIFY", data=None)
+                        IdentifyPacket(
+                            identifier=self.identifier, type="IDENTIFY", data=idp
+                        )
                     )
                 )
 

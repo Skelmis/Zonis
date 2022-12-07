@@ -18,8 +18,10 @@ class Server:
         *,
         using_fastapi_websockets: bool = False,
         override_key: Optional[str] = None,
+        secret_key: str = "",
     ):
         self._connections = {}
+        self._secret_key: str = secret_key
         self._override_key: Optional[str] = (
             override_key if override_key is not None else secrets.token_hex(64)
         )
@@ -87,8 +89,8 @@ class Server:
             packet: Packet = json.loads(d)
             if packet["type"] == "FAILURE_RESPONSE":
                 results[i] = RequestFailed(packet["data"])
-
-            results[i] = packet["data"]
+            else:
+                results[i] = packet["data"]
 
         return results
 
@@ -105,13 +107,19 @@ class Server:
                 )
 
             packet: IdentifyPacket = cast(IdentifyPacket, packet)
-            override_key = packet["data"]["override_key"] if "data" in packet else None
+            secret_key = packet["data"]["secret_key"]
+            if secret_key != self._secret_key:
+                await websocket.close(code=4100, reason=f"Invalid secret key.")
+                raise BaseZonisException(
+                    f"Client attempted to connect with an incorrect secret key."
+                )
 
+            override_key = packet["data"].get("override_key")
             if identifier in self._connections and (
                 not override_key or override_key != self._override_key
             ):
                 await websocket.close(
-                    code=3000, reason="Duplicate identifier on IDENTIFY"
+                    code=4102, reason="Duplicate identifier on IDENTIFY"
                 )
                 raise DuplicateConnection("Identify failed.")
 
