@@ -2,6 +2,8 @@ import json
 import secrets
 from typing import Dict, Literal, Any, cast, Optional
 
+from websockets.exceptions import ConnectionClosedOK
+
 from zonis import (
     Packet,
     UnknownClient,
@@ -75,22 +77,25 @@ class Server:
         results: Dict[str, Any] = {}
 
         for i, conn in self._connections.items():
-            await self._send(
-                json.dumps(
-                    Packet(
-                        identifier=i,
-                        type="REQUEST",
-                        data=RequestPacket(route=route, arguments=kwargs),
-                    )
-                ),
-                conn,
-            )
-            d = await self._recv(conn)
-            packet: Packet = json.loads(d)
-            if packet["type"] == "FAILURE_RESPONSE":
-                results[i] = RequestFailed(packet["data"])
-            else:
-                results[i] = packet["data"]
+            try:
+                await self._send(
+                    json.dumps(
+                        Packet(
+                            identifier=i,
+                            type="REQUEST",
+                            data=RequestPacket(route=route, arguments=kwargs),
+                        )
+                    ),
+                    conn,
+                )
+                d = await self._recv(conn)
+                packet: Packet = json.loads(d)
+                if packet["type"] == "FAILURE_RESPONSE":
+                    results[i] = RequestFailed(packet["data"])
+                else:
+                    results[i] = packet["data"]
+            except ConnectionClosedOK:
+                results[i] = RequestFailed("Connection Closed")
 
         return results
 
