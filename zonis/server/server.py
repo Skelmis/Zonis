@@ -1,8 +1,10 @@
 import json
+import logging
 import secrets
+import traceback
 from typing import Dict, Literal, Any, cast, Optional
 
-from websockets.exceptions import ConnectionClosedOK
+from websockets.exceptions import ConnectionClosedOK, ConnectionClosedError
 
 from zonis import (
     Packet,
@@ -12,6 +14,8 @@ from zonis import (
     DuplicateConnection,
 )
 from zonis.packet import RequestPacket, IdentifyPacket
+
+log = logging.getLogger(__name__)
 
 
 class Server:
@@ -94,8 +98,29 @@ class Server:
                     results[i] = RequestFailed(packet["data"])
                 else:
                     results[i] = packet["data"]
-            except ConnectionClosedOK:
+            except ConnectionClosedOK as e:
                 results[i] = RequestFailed("Connection Closed")
+                log.error(
+                    "request_all connection closed: %s, %s",
+                    i,
+                    "".join(traceback.format_exception(e)),
+                )
+            except ConnectionClosedError as e:
+                results[i] = RequestFailed(
+                    f"Connection closed with error: {e.code}|{e.reason}"
+                )
+                log.error(
+                    "request_all connection closed with error: %s, %s",
+                    i,
+                    "".join(traceback.format_exception(e)),
+                )
+            except Exception as e:
+                results[i] = RequestFailed("Request failed.")
+                log.error(
+                    "request_all connection threw: %s, %s",
+                    i,
+                    "".join(traceback.format_exception(e)),
+                )
 
         return results
 
