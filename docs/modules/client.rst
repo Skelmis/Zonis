@@ -1,7 +1,7 @@
 Client
 ******
 
-.. currentmodule:: zonis.client
+.. currentmodule:: zonis
 
 .. autofunction:: route
 

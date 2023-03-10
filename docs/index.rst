@@ -13,6 +13,7 @@ Welcome to Zonis's documentation!
    modules/client.rst
    modules/server.rst
    modules/errors.rst
+   modules/extending.rst
 
 
 
