@@ -37,6 +37,20 @@ async def exception_aware_scheduler(
 
 
 def route(route_name: Optional[str] = None):
+    """Turn an async function into a valid IPC route.
+
+    Parameters
+    ----------
+    route_name: Optional[str]
+        An optional name for this IPC route,
+        defaults to the name of the function.
+
+    Raises
+    ------
+    DuplicateRoute
+        A route with this name already exists
+    """
+
     def decorator(func: Callable):
         name = route_name or func.__name__
         if name in deferred_routes:
@@ -60,6 +74,7 @@ class Client:
     port: Optional[:class:`int`]
         The port that the :class:`Client` should use.
     """
+
     def __init__(
         self,
         *,
@@ -90,10 +105,44 @@ class Client:
         self._instance_mapping: Dict[str, Any] = {}
 
     def register_class_instance_for_routes(self, instance, *routes) -> None:
+        """Register a class instance for the given route.
+
+        When you turn a method on a class into an IPC route,
+        you need to call this method with the instance of the class
+        to use as well as the names of the routes for registration to work correctly.
+
+        Parameters
+        ----------
+        instance
+            The class instance the methods live on
+        routes
+            A list of strings representing the names
+            of the IPC routes for this class.
+        """
         for r in routes:
             self._instance_mapping[r] = instance
 
     def route(self, route_name: Optional[str] = None):
+        """Turn an async function into a valid IPC route.
+
+        Parameters
+        ----------
+        route_name: Optional[str]
+            An optional name for this IPC route,
+            defaults to the name of the function.
+
+        Raises
+        ------
+        DuplicateRoute
+            A route with this name already exists
+
+        Notes
+        -----
+        If this is a method on a class, you will also
+        need to use the ``register_class_instance_for_routes``
+        method for this to work as an IPC route.
+        """
+
         def decorator(func: Callable):
             name = route_name or func.__name__
             if name in self._routes:
@@ -105,6 +154,7 @@ class Client:
         return decorator
 
     def load_routes(self) -> None:
+        """Loads all decorated routes."""
         global deferred_routes
         for k, v in deferred_routes.items():
             if k in self._routes:
@@ -114,6 +164,7 @@ class Client:
         deferred_routes = {}
 
     async def start(self) -> None:
+        """Start the IPC client."""
         self.load_routes()
         await exception_aware_scheduler(
             self._connect, retry_count=self._reconnect_attempt_count
@@ -125,6 +176,7 @@ class Client:
         )
 
     async def close(self) -> None:
+        """Stop the IPC client."""
         if self.__current_ws:
             try:
                 await self.__current_ws.close()

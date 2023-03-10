@@ -28,6 +28,7 @@ class Server:
     secret_key: :class:`str`
         Defaults to an emptry string.
     """
+
     def __init__(
         self,
         *,
@@ -43,6 +44,22 @@ class Server:
         self.using_fastapi_websockets: bool = using_fastapi_websockets
 
     def disconnect(self, identifier: str) -> None:
+        """Disconnect a client connection.
+
+        Parameters
+        ----------
+        identifier: str
+            The client identifier to disconnect
+
+        Notes
+        -----
+        This doesn't yet tell the client to stop
+        gracefully, this just removes it from our store.
+
+        Warnings
+        --------
+        This doesn't yet actually close the WS.
+        """
         self._connections.pop(identifier, None)
 
     async def _send(self, content: str, conn) -> None:
@@ -64,7 +81,31 @@ class Server:
 
     async def request(
         self, route: str, *, client_identifier: str = "DEFAULT", **kwargs
-    ):
+    ) -> Any:
+        """Make a request to the provided IPC client.
+
+        Parameters
+        ----------
+        route: str
+            The IPC route to call.
+        client_identifier: Optional[str]
+            The client to make a request to.
+
+            This only applies in many to one setups
+            or if you changed the default identifier.
+        kwargs
+            All the arguments you wish to invoke the IPC route with.
+
+        Returns
+        -------
+        Any
+            The data the IPC route returned.
+
+        Raises
+        ------
+        RequestFailed
+            The IPC request failed.
+        """
         conn = self._connections.get(client_identifier)
         if not conn:
             raise UnknownClient
@@ -87,6 +128,23 @@ class Server:
         return packet["data"]
 
     async def request_all(self, route: str, **kwargs) -> Dict[str, Any]:
+        """Issue a request to connected IPC clients.
+
+        Parameters
+        ----------
+        route: str
+            The IPC route to call.
+        kwargs
+            All the arguments you wish to invoke the IPC route with.
+
+        Returns
+        -------
+        Dict[str, Any]
+            A dictionary where the keys are the client
+            identifiers and the values are the returned data.
+
+            The data could also be an instance of :py:class:RequestFailed:
+        """
         results: Dict[str, Any] = {}
 
         for i, conn in self._connections.items():
@@ -134,6 +192,27 @@ class Server:
         return results
 
     async def parse_identify(self, packet: Packet, websocket) -> str:
+        """Parse a packet to establish a new valid client connection.
+
+        Parameters
+        ----------
+        packet: Packet
+            The packet to read
+        websocket
+            The websocket this connection is using
+
+        Returns
+        -------
+        str
+            The established clients identifier
+
+        Raises
+        ------
+        BaseZonisException
+            Unexpected WS issue
+        DuplicateConnection
+            Duplicate connection without override keys
+        """
         try:
             identifier: str = packet.get("identifier")
             ws_type: Literal["IDENTIFY"] = packet["type"]
