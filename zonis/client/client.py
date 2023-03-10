@@ -49,6 +49,17 @@ def route(route_name: Optional[str] = None):
 
 
 class Client:
+    """
+    Parameters
+    ----------
+    reconnect_attempt_count: :class:`int`
+        The number of times that the :class:`Client` should
+        attempt to reconnect.
+    url: :class:`str`
+        Defaults to ``ws://localhost``.
+    port: Optional[:class:`int`]
+        The port that the :class:`Client` should use.
+    """
     def __init__(
         self,
         *,
@@ -58,7 +69,7 @@ class Client:
         identifier: str = "DEFAULT",
         secret_key: str = "",
         override_key: Optional[str] = None,
-    ):
+    ) -> None:
         url = f"{url}:{port}" if port else url
         url = (
             f"ws://{url}"
@@ -78,7 +89,7 @@ class Client:
         self.__task: Optional[asyncio.Task] = None
         self._instance_mapping: Dict[str, Any] = {}
 
-    def register_class_instance_for_routes(self, instance, *routes):
+    def register_class_instance_for_routes(self, instance, *routes) -> None:
         for r in routes:
             self._instance_mapping[r] = instance
 
@@ -93,7 +104,7 @@ class Client:
 
         return decorator
 
-    def load_routes(self):
+    def load_routes(self) -> None:
         global deferred_routes
         for k, v in deferred_routes.items():
             if k in self._routes:
@@ -102,7 +113,7 @@ class Client:
             self._routes[k] = v
         deferred_routes = {}
 
-    async def start(self):
+    async def start(self) -> None:
         self.load_routes()
         await exception_aware_scheduler(
             self._connect, retry_count=self._reconnect_attempt_count
@@ -113,7 +124,7 @@ class Client:
             self.identifier,
         )
 
-    async def close(self):
+    async def close(self) -> None:
         if self.__current_ws:
             try:
                 await self.__current_ws.close()
@@ -129,7 +140,7 @@ class Client:
         self._connection_future = asyncio.Future()
         log.info("Successfully closed the client")
 
-    async def _connect(self):
+    async def _connect(self) -> None:
         try:
             async with websockets.connect(self._url) as websocket:
                 self.__current_ws = websocket

@@ -19,13 +19,22 @@ log = logging.getLogger(__name__)
 
 
 class Server:
+    """
+    Parameters
+    ----------
+    using_fastapi_websockets: :class:`bool`
+        Defaults to ``False``.
+    override_key: Optional[:class:`str`]
+    secret_key: :class:`str`
+        Defaults to an emptry string.
+    """
     def __init__(
         self,
         *,
         using_fastapi_websockets: bool = False,
         override_key: Optional[str] = None,
         secret_key: str = "",
-    ):
+    ) -> None:
         self._connections = {}
         self._secret_key: str = secret_key
         self._override_key: Optional[str] = (
@@ -33,10 +42,10 @@ class Server:
         )
         self.using_fastapi_websockets: bool = using_fastapi_websockets
 
-    def disconnect(self, identifier: str):
+    def disconnect(self, identifier: str) -> None:
         self._connections.pop(identifier, None)
 
-    async def _send(self, content: str, conn):
+    async def _send(self, content: str, conn) -> None:
         if self.using_fastapi_websockets:
             await conn.send_text(content)
         else:

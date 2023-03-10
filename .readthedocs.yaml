@@ -3,9 +3,6 @@ version: 2
 formats:
   - pdf
 
-sphinx:
-  configuration: docs/conf.py
-
 build:
   os: ubuntu-20.04
   tools:
