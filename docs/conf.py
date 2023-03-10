@@ -13,7 +13,7 @@ project = "Zonis"
 copyright = "2022, Skelmis"
 author = "Skelmis"
 
-sys.path.insert(0, os.path.abspath("../"))
+sys.path.insert(0, os.path.abspath(".."))
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
@@ -47,4 +47,4 @@ intersphinx_mapping = {
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
 html_theme = "furo"
-#html_static_path = ["_static"]
+# html_static_path = ["_static"]
