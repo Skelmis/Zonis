@@ -12,6 +12,7 @@ from zonis.packet import (
     RequestPacket,
     IdentifyDataPacket,
     IdentifyPacket,
+    ClientToServerPacket,
 )
 
 log = logging.getLogger(__name__)
@@ -166,9 +167,13 @@ class Client:
     async def start(self) -> None:
         """Start the IPC client."""
         self.load_routes()
-        await exception_aware_scheduler(
-            self._connect, retry_count=self._reconnect_attempt_count
+        asyncio.create_task(
+            exception_aware_scheduler(
+                self._connect, retry_count=self._reconnect_attempt_count
+            )
         )
+        print("Below is tart")
+        print(id(self._connection_future))
         await self._connection_future  # Ensure the connection is made before actually progressing
         log.info(
             "Successfully connected to the server with identifier %s",
@@ -191,6 +196,27 @@ class Client:
 
         self._connection_future = asyncio.Future()
         log.info("Successfully closed the client")
+
+    async def request(self, route: str, **kwargs):
+        """Make a request to the server"""
+        await self.__current_ws.send(
+            json.dumps(
+                ClientToServerPacket(
+                    identifier=self.identifier,
+                    type="CLIENT_REQUEST",
+                    data=RequestPacket(route=route, arguments=kwargs),
+                )
+            )
+        )
+        d = await self.__current_ws.recv()
+        packet: Packet = json.loads(d)
+        ws_type: Literal["CLIENT_REQUEST_RESPONSE"] = packet["type"]
+        if ws_type != "CLIENT_REQUEST_RESPONSE":
+            raise ValueError(
+                "Unexpected websocket type received. Figured this might happen"
+            )
+
+        return packet["data"]
 
     async def _connect(self) -> None:
         try:
@@ -215,6 +241,8 @@ class Client:
                     log.debug("Received %s event", ws_type)
                     if ws_type == "IDENTIFY":
                         # We have successfully connected
+                        print("Below is setting")
+                        print(id(self._connection_future))
                         self._connection_future.set_result(None)
 
                     elif ws_type == "REQUEST":
