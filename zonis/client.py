@@ -221,6 +221,7 @@ class Client:
     async def _connect(self) -> None:
         try:
             async with websockets.connect(self._url) as websocket:
+                print(type(websocket))
                 self.__current_ws = websocket
                 idp = IdentifyDataPacket(
                     secret_key=self._secret_key, override_key=self._override_key
