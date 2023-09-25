@@ -24,6 +24,7 @@ class PacketT(t.TypedDict):
 
 
 # TODO Consider back pressure via queue limits to avoid/alert on congestion?
+# TODO Make program clean exit on Ctrl + C
 class Router:
     """A router class for enabling two-way communication down a single pipe.
 
@@ -40,6 +41,8 @@ class Router:
         self._receive_handler = None
         self.identifier: str = identifier
         self._futures: dict[str, asyncio.Future] = {}
+        # TODO These queues can all likely become one and just use
+        #      a dict to store relevant metadata? Or named tuple
         self._response_queue: asyncio.Queue[tuple[None, dict]] = asyncio.Queue()
         self._send_queue: asyncio.Queue[tuple[asyncio.Future, dict]] = asyncio.Queue()
         self._connection_future: asyncio.Future | None = None
@@ -167,6 +170,8 @@ class Router:
         is waiting for this then the whole thing fucking
         falls apart and breaks and I don't know why
         """
+        # TODO Figure out how to make closing WS work
+        #      / exiting on close. Thinking special queue item?
         await self._close_future
 
     async def _handle_pipe(self, websocket):
