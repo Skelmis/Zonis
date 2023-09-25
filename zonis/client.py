@@ -225,15 +225,7 @@ class Client:
                 data=RequestPacket(route=route, arguments=kwargs),
             )
         )
-        d = await request_future
-        packet: Packet = json.loads(d)
-        ws_type: Literal["CLIENT_REQUEST_RESPONSE"] = packet["type"]
-        if ws_type != "CLIENT_REQUEST_RESPONSE":
-            raise ValueError(
-                "Unexpected websocket type received. Figured this might happen"
-            )
-
-        return packet["data"]
+        return await request_future
 
     async def _connect(self) -> None:
         try:

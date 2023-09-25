@@ -9,14 +9,16 @@ from zonis.server import Server
 
 import logging
 
-logging.basicConfig(
-    format="%(levelname)-7s | %(asctime)s | %(filename)12s:%(funcName)-12s | %(message)s",
-    datefmt="%I:%M:%S %p %d/%m/%Y",
-    level=logging.DEBUG,
-)
-
 app = FastAPI()
 server = Server(using_fastapi_websockets=True)
+
+
+async def callback(packet_data, callback):
+    print(packet_data)
+    await callback(data={"hello": "world"})
+
+
+server.register_request_callback(callback)
 
 
 @server.route()

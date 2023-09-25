@@ -8,7 +8,7 @@ import traceback
 import typing as t
 from functools import partial
 
-import websockets
+import websockets.client
 from websockets.legacy.client import WebSocketClientProtocol
 
 from zonis import UnknownPacket, MissingReceiveHandler, util
@@ -54,7 +54,7 @@ class Router:
         # TODO Handle IDENTIFY packets coming in
         #      and ensure this method doesnt return
         #      until the underlying ws is ready
-        # await self._connection_future
+        await self._connection_future
 
     async def connect_server(self, websocket) -> None:
         self._ws_task = util.create_task(self._handle_pipe(websocket))
@@ -134,20 +134,38 @@ class Router:
 
         This method is called from clients.
         """
-        try:
-            async with websockets.connect(url) as websocket:
+        async for websocket in websockets.client.connect(
+            url,
+            # ping_timeout=10000,
+        ):
+            try:
                 websocket = t.cast(WebSocketClientProtocol, websocket)
                 util.create_task(self._handle_client_identify(idp))
                 log.debug("Websocket opened to %s", url)
+
+                # This method seemingly doesn't block as a result
+                # of it's implementation and thus we require
+                # the following in order to maintain the websocket
                 await self._handle_pipe(websocket)
-        except Exception as error:
-            log.critical("%s", "".join(traceback.format_exception(error)))
+
+                await self._close_future
+            except Exception as error:
+                log.critical("%s", "".join(traceback.format_exception(error)))
+            finally:
+                await self._wait_for_close()
+                log.error("Doing stuff")
+
+        log.critical("Closing IDK")
 
     async def _wait_for_close(self):
         """An awaitable that blocks until the connection should be closed.
 
         Used over directly awaiting a Future as it can't be a
         coro using in create_task...
+
+        Even better, if you cancel this task which
+        is waiting for this then the whole thing fucking
+        falls apart and breaks and I don't know why
         """
         await self._close_future
 
@@ -160,15 +178,21 @@ class Router:
                     receive_task = util.create_task(websocket.recv())
                 queue_task = util.create_task(self._send_queue.get())
                 response_task = util.create_task(self._response_queue.get())
-                close_task = util.create_task(self._wait_for_close())
+                # close_task = util.create_task(self._wait_for_close())
 
                 done, pending = await asyncio.wait(
-                    [receive_task, queue_task, response_task, close_task],
+                    [
+                        receive_task,
+                        queue_task,
+                        response_task,
+                        # close_task,
+                    ],
                     return_when=asyncio.FIRST_COMPLETED,
                 )
 
                 result = done.pop().result()
                 for future in pending:
+                    log.info("About to cancel %s", future)
                     future.cancel()
 
                 if result == "CLOSE_FUTURE":
@@ -202,7 +226,6 @@ class Router:
         else:
             packet: PacketT = json.loads(raw_packet)
 
-        print(packet)
         if "type" not in packet:
             log.debug("Failed to resolve packet type for %s", packet)
             raise UnknownPacket
@@ -238,9 +261,7 @@ class Router:
             # and function to call to return a response
             util.create_task(
                 self._receive_handler(
-                    (
-                        packet_data,
-                        partial(self.send_response, packet_id=packet),
-                    )
+                    packet_data,
+                    partial(self.send_response, packet_id=packet["packet_id"]),
                 )
             )

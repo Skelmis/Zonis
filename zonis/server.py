@@ -44,6 +44,7 @@ class Server:
         self._override_key: Optional[str] = (
             override_key if override_key is not None else secrets.token_hex(64)
         )
+        self._callback = None
         self.using_fastapi_websockets: bool = using_fastapi_websockets
 
         self.__is_open = True
@@ -65,6 +66,10 @@ class Server:
         """
         router = self._connections.pop(identifier)
         await router.close()
+
+    def register_request_callback(self, callback) -> None:
+        # TODO DOCO
+        self._callback = callback
 
     async def request(
         self, route: str, *, client_identifier: str = "DEFAULT", **kwargs
@@ -104,8 +109,7 @@ class Server:
                 data=RequestPacket(route=route, arguments=kwargs),
             )
         )
-        d = await request_future
-        packet: Packet = json.loads(d)
+        packet = await request_future
         if packet["type"] == "FAILURE_RESPONSE":
             raise RequestFailed(packet["data"])
 
@@ -225,6 +229,9 @@ class Server:
                 raise DuplicateConnection("Identify failed.")
 
             router: Router = Router(identifier, using_fastapi_websockets=True)
+            if self._callback is not None:
+                router.register_receiver(callback=self._callback)
+
             await router.connect_server(websocket)
             self._connections[identifier] = router
             await router.send_response(
