@@ -6,7 +6,7 @@ from typing import Optional, Literal, Callable, Dict, Any
 import websockets
 from websockets.exceptions import WebSocketException, ConnectionClosed
 
-from zonis import Packet, DuplicateRoute
+from zonis import Packet, DuplicateRoute, Router
 from zonis.packet import (
     custom_close_codes,
     RequestPacket,
@@ -93,7 +93,7 @@ class Client:
             else url
         )
         self._url: str = url
-        self.identifier: Optional[str] = identifier
+        self.identifier: str = identifier
         self._reconnect_attempt_count: int = reconnect_attempt_count
         self._connection_future: asyncio.Future = asyncio.Future()
 
@@ -104,6 +104,10 @@ class Client:
         self.__current_ws = None
         self.__task: Optional[asyncio.Task] = None
         self._instance_mapping: Dict[str, Any] = {}
+
+        self.router: Router = Router(self.identifier).register_receiver(
+            self._request_handler
+        )
 
     def register_class_instance_for_routes(self, instance, *routes) -> None:
         """Register a class instance for the given route.
@@ -167,14 +171,12 @@ class Client:
     async def start(self) -> None:
         """Start the IPC client."""
         self.load_routes()
-        asyncio.create_task(
-            exception_aware_scheduler(
-                self._connect, retry_count=self._reconnect_attempt_count
-            )
+        await self.router.connect_client(
+            self._url,
+            idp=IdentifyDataPacket(
+                secret_key=self._secret_key, override_key=self._override_key
+            ),
         )
-        print("Below is tart")
-        print(id(self._connection_future))
-        await self._connection_future  # Ensure the connection is made before actually progressing
         log.info(
             "Successfully connected to the server with identifier %s",
             self.identifier,
@@ -182,33 +184,48 @@ class Client:
 
     async def close(self) -> None:
         """Stop the IPC client."""
-        if self.__current_ws:
-            try:
-                await self.__current_ws.close()
-            except:
-                pass
-
-        if self.__task:
-            try:
-                self.__task.cancel()
-            except:
-                pass
-
-        self._connection_future = asyncio.Future()
+        await self.router.close()
         log.info("Successfully closed the client")
+
+    async def _request_handler(self, packet_data, resolution_handler):
+        data: RequestPacket = packet_data["data"]
+        route_name = data["route"]
+        if route_name not in self._routes:
+            await resolution_handler(
+                data=Packet(
+                    identifier=self.identifier,
+                    type="FAILURE_RESPONSE",
+                    data=f"{route_name} is not a valid route name.",
+                )
+            )
+            return
+
+        if route_name in self._instance_mapping:
+            result = await self._routes[route_name](
+                self._instance_mapping[route_name],
+                **data["arguments"],
+            )
+        else:
+            result = await self._routes[route_name](**data["arguments"])
+
+        await resolution_handler(
+            data=Packet(
+                identifier=self.identifier,
+                type="SUCCESS_RESPONSE",
+                data=result,
+            )
+        )
 
     async def request(self, route: str, **kwargs):
         """Make a request to the server"""
-        await self.__current_ws.send(
-            json.dumps(
-                ClientToServerPacket(
-                    identifier=self.identifier,
-                    type="CLIENT_REQUEST",
-                    data=RequestPacket(route=route, arguments=kwargs),
-                )
+        request_future: asyncio.Future = await self.router.send(
+            ClientToServerPacket(
+                identifier=self.identifier,
+                type="CLIENT_REQUEST",
+                data=RequestPacket(route=route, arguments=kwargs),
             )
         )
-        d = await self.__current_ws.recv()
+        d = await request_future
         packet: Packet = json.loads(d)
         ws_type: Literal["CLIENT_REQUEST_RESPONSE"] = packet["type"]
         if ws_type != "CLIENT_REQUEST_RESPONSE":

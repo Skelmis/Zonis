@@ -1,5 +1,6 @@
 from .packet import Packet, RequestPacket, ClientToServerPacket
 from .exceptions import *
+from .router import Router
 from .server import Server
 from .client import Client, route
 
@@ -19,6 +20,7 @@ __all__ = (
     "RequestFailed",
     "UnknownPacket",
     "MissingReceiveHandler",
+    "Router",
 )
 
 __version__ = "1.3.0"

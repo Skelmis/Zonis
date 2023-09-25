@@ -7,6 +7,14 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 from zonis import UnknownClient, BaseZonisException, RequestFailed
 from zonis.server import Server
 
+import logging
+
+logging.basicConfig(
+    format="%(levelname)-7s | %(asctime)s | %(filename)12s:%(funcName)-12s | %(message)s",
+    datefmt="%I:%M:%S %p %d/%m/%Y",
+    level=logging.DEBUG,
+)
+
 app = FastAPI()
 server = Server(using_fastapi_websockets=True)
 
@@ -35,8 +43,6 @@ async def websocket_endpoint(websocket: WebSocket):
         print("WS failed to identify")
         return
 
-    print(1)
-    # asyncio.create_task(server.handle_client_requests())
     try:
         await asyncio.Future()
     except WebSocketDisconnect:

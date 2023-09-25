@@ -13,8 +13,10 @@ from zonis import (
     BaseZonisException,
     DuplicateConnection,
     DuplicateRoute,
+    Router,
 )
 from zonis.packet import RequestPacket, IdentifyPacket
+from zonis.router import PacketT
 
 log = logging.getLogger(__name__)
 
@@ -37,7 +39,7 @@ class Server:
         override_key: Optional[str] = None,
         secret_key: str = "",
     ) -> None:
-        self._connections = {}
+        self._connections: dict[str, Router] = {}
         self._secret_key: str = secret_key
         self._override_key: Optional[str] = (
             override_key if override_key is not None else secrets.token_hex(64)
@@ -47,7 +49,7 @@ class Server:
         self.__is_open = True
         self._routes = {}
 
-    def disconnect(self, identifier: str) -> None:
+    async def disconnect(self, identifier: str) -> None:
         """Disconnect a client connection.
 
         Parameters
@@ -60,28 +62,9 @@ class Server:
         This doesn't yet tell the client to stop
         gracefully, this just removes it from our store.
 
-        Warnings
-        --------
-        This doesn't yet actually close the WS.
         """
-        self._connections.pop(identifier, None)
-
-    async def _send(self, content: str, conn) -> None:
-        if self.using_fastapi_websockets:
-            await conn.send_text(content)
-        else:
-            await conn.send(content)
-
-    async def _recv(self, conn) -> str:
-        if self.using_fastapi_websockets:
-            from starlette.websockets import WebSocketDisconnect
-
-            try:
-                return await conn.receive_text()
-            except WebSocketDisconnect:
-                raise RequestFailed("Websocket disconnected while waiting for receive.")
-
-        return await conn.recv()
+        router = self._connections.pop(identifier)
+        await router.close()
 
     async def request(
         self, route: str, *, client_identifier: str = "DEFAULT", **kwargs
@@ -114,17 +97,14 @@ class Server:
         if not conn:
             raise UnknownClient
 
-        await self._send(
-            json.dumps(
-                Packet(
-                    identifier=client_identifier,
-                    type="REQUEST",
-                    data=RequestPacket(route=route, arguments=kwargs),
-                )
-            ),
-            conn,
+        request_future = await conn.send(
+            Packet(
+                identifier=client_identifier,
+                type="REQUEST",
+                data=RequestPacket(route=route, arguments=kwargs),
+            )
         )
-        d = await self._recv(conn)
+        d = await request_future
         packet: Packet = json.loads(d)
         if packet["type"] == "FAILURE_RESPONSE":
             raise RequestFailed(packet["data"])
@@ -153,17 +133,14 @@ class Server:
 
         for i, conn in self._connections.items():
             try:
-                await self._send(
-                    json.dumps(
-                        Packet(
-                            identifier=i,
-                            type="REQUEST",
-                            data=RequestPacket(route=route, arguments=kwargs),
-                        )
-                    ),
-                    conn,
+                request_future = await conn.send(
+                    Packet(
+                        identifier=i,
+                        type="REQUEST",
+                        data=RequestPacket(route=route, arguments=kwargs),
+                    )
                 )
-                d = await self._recv(conn)
+                d = await request_future
                 packet: Packet = json.loads(d)
                 if packet["type"] == "FAILURE_RESPONSE":
                     results[i] = RequestFailed(packet["data"])
@@ -195,7 +172,7 @@ class Server:
 
         return results
 
-    async def parse_identify(self, packet: Packet, websocket) -> str:
+    async def parse_identify(self, packet: PacketT, websocket) -> str:
         """Parse a packet to establish a new valid client connection.
 
         Parameters
@@ -218,6 +195,8 @@ class Server:
             Duplicate connection without override keys
         """
         try:
+            raw_packet = packet
+            packet = raw_packet["data"]
             identifier: str = packet.get("identifier")
             ws_type: Literal["IDENTIFY"] = packet["type"]
             if ws_type != "IDENTIFY":
@@ -245,10 +224,12 @@ class Server:
                 )
                 raise DuplicateConnection("Identify failed.")
 
-            self._connections[identifier] = websocket
-            await self._send(
-                json.dumps(Packet(identifier=identifier, type="IDENTIFY", data=None)),
-                websocket,
+            router: Router = Router(identifier, using_fastapi_websockets=True)
+            await router.connect_server(websocket)
+            self._connections[identifier] = router
+            await router.send_response(
+                packet_id=raw_packet["packet_id"],
+                data=Packet(identifier=identifier, type="IDENTIFY", data=None),
             )
             return identifier
         except Exception as e:
@@ -300,11 +281,9 @@ class Server:
 
             result = await self._routes[route_name](**data["arguments"])
             await self._connections["DEFAULT"].send(
-                json.dumps(
-                    Packet(
-                        identifier="DEFAULT",
-                        type="CLIENT_REQUEST_RESPONSE",
-                        data=result,
-                    )
+                Packet(
+                    identifier="DEFAULT",
+                    type="CLIENT_REQUEST_RESPONSE",
+                    data=result,
                 )
             )
