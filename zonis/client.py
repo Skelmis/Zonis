@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import signal
 from typing import Optional, Literal, Callable, Dict, Any
 
 import websockets
@@ -108,6 +109,20 @@ class Client:
         self.router: Router = Router(self.identifier).register_receiver(
             self._request_handler
         )
+
+        # https://github.com/gearbot/GearBot/blob/live/GearBot/GearBot.py
+        try:
+            for signame in ("SIGINT", "SIGTERM", "SIGKILL"):
+                asyncio.get_event_loop().add_signal_handler(
+                    getattr(signal, signame),
+                    lambda: asyncio.ensure_future(self.close()),
+                )
+        except Exception as e:
+            pass  # doesn't work on windows
+
+    async def block_until_closed(self):
+        """A blocking call which releases when the WS closes."""
+        await self.router.block_until_closed()
 
     def register_class_instance_for_routes(self, instance, *routes) -> None:
         """Register a class instance for the given route.

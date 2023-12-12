@@ -35,24 +35,54 @@ class Router:
     as this class doesn't have the context required to handle it.
     """
 
-    def __init__(self, identifier: str, *, using_fastapi_websockets: bool = False):
+    _EXIT_LITERAL: t.Final = "CLOSE_FUTURE"
+
+    def __init__(
+        self,
+        identifier: str,
+        *,
+        using_fastapi_websockets: bool = False,
+        retry_on_exception: bool = True,
+        max_retries: int = 3
+    ):
+        self._retry_on_exception: bool = retry_on_exception
+        self._max_retries: int = max_retries
+        self._attempted_connection_count: int = 0
+        self.__url: str | None = None
         self.__is_open: bool = True
         self._ws_task: asyncio.Task | None = None
         self._receive_handler = None
         self.identifier: str = identifier
+        self._router_id: str = secrets.token_bytes(32).hex()
         self._futures: dict[str, asyncio.Future] = {}
-        # TODO These queues can all likely become one and just use
-        #      a dict to store relevant metadata? Or named tuple
-        self._response_queue: asyncio.Queue[tuple[None, dict]] = asyncio.Queue()
-        self._send_queue: asyncio.Queue[tuple[asyncio.Future, dict]] = asyncio.Queue()
+        self._item_queue: asyncio.Queue[
+            tuple[t.Literal["SEND_THEN_RECEIVE_RESPONSE"], dict]
+            | tuple[t.Literal["SEND_RESPONSE"], dict]
+            | tuple[t.Literal["CLOSE_FUTURE"]],
+        ] = asyncio.Queue()
         self._connection_future: asyncio.Future | None = None
-        self._close_future: asyncio.Future = asyncio.get_running_loop().create_future()
+        self._block_future: asyncio.Future = asyncio.Future()
         self._using_fastapi_websockets: bool = using_fastapi_websockets
+        self._receive_from_queue_task: asyncio.Task | None = None
+        self._receive_from_ws_task: asyncio.Task | None = None
+
+    async def block_until_closed(self):
+        """A blocking call which releases when the WS closes.
+
+        Notes
+        -----
+        This will block even if the
+        underlying WS has yet to connect.
+        """
+        await self._block_future
 
     async def connect_client(self, url: str, idp: IdentifyDataPacket) -> None:
         """A non-blocking call which connects the underlying WS."""
         self._connection_future = asyncio.Future()
-        self._ws_task = util.create_task(self._handle_ws(url, idp))
+        self.__url = url
+        self._ws_task = util.create_task(
+            self._handle_ws(url, idp), router_id=self._router_id
+        )
 
         # TODO Handle IDENTIFY packets coming in
         #      and ensure this method doesnt return
@@ -60,14 +90,18 @@ class Router:
         await self._connection_future
 
     async def connect_server(self, websocket) -> None:
-        self._ws_task = util.create_task(self._handle_pipe(websocket))
+        self._ws_task = util.create_task(
+            self._handle_pipe(websocket), router_id=self._router_id
+        )
 
     async def close(self) -> None:
         """Close the underlying WS"""
-        self._close_future.set_result("CLOSE_FUTURE")
+        log.debug("Closing WS connection to %s", self.__url)
+        self._item_queue.put_nowait((self._EXIT_LITERAL,))  # type: ignore
 
         # Let the event loop close the task by giving
         # back control for a no-op
+        # TODO Remove?
         await asyncio.sleep(0)
 
     async def send(self, data: dict) -> asyncio.Future:
@@ -84,12 +118,12 @@ class Router:
             This future will contain the returned data
             once it becomes available
         """
-        packet_id = secrets.token_bytes(32).hex()
+        packet_id = secrets.token_bytes(16).hex()
         future: asyncio.Future = asyncio.get_running_loop().create_future()
         self._futures[packet_id] = future
-        self._send_queue.put_nowait(
+        self._item_queue.put_nowait(
             (
-                future,
+                "SEND_THEN_RECEIVE_RESPONSE",
                 {"packet_id": packet_id, "type": "request", "data": data},
             )
         )
@@ -110,7 +144,7 @@ class Router:
             data = {}
 
         packet: PacketT = {"type": "response", "packet_id": packet_id, "data": data}
-        self._response_queue.put_nowait((None, packet))
+        self._item_queue.put_nowait(("SEND_RESPONSE", packet))
         log.debug("Queued item to send as a response for packet %s", packet_id)
 
     def register_receiver(self, callback) -> Router:
@@ -139,86 +173,97 @@ class Router:
         """
         async for websocket in websockets.client.connect(
             url,
-            # ping_timeout=10000,
+            ping_timeout=100000,
         ):
             try:
                 websocket = t.cast(WebSocketClientProtocol, websocket)
-                util.create_task(self._handle_client_identify(idp))
+                # This is a task because sending is done within _handle_pipe
+                util.create_task(
+                    self._handle_client_identify(idp), router_id=self._router_id
+                )
                 log.debug("Websocket opened to %s", url)
 
-                # This method seemingly doesn't block as a result
-                # of it's implementation and thus we require
-                # the following in order to maintain the websocket
-                await self._handle_pipe(websocket)
+                result = await self._handle_pipe(websocket)
+                if result is not None and result == self._EXIT_LITERAL:
+                    break
 
-                await self._close_future
             except Exception as error:
                 log.critical("%s", "".join(traceback.format_exception(error)))
             finally:
-                await self._wait_for_close()
-                log.error("Doing stuff")
+                self._attempted_connection_count += 1
+                if (
+                    self._retry_on_exception
+                    and self._max_retries < self._attempted_connection_count
+                ):
+                    log.critical("Exceeded maximum websocket reconnections, exiting...")
+                    break
 
-        log.critical("Closing IDK")
+        self._block_future.set_result(None)
 
-    async def _wait_for_close(self):
-        """An awaitable that blocks until the connection should be closed.
+    def _ensure_tasks_exist(self, websocket):
+        if self._receive_from_ws_task is None:
+            if self._using_fastapi_websockets:
+                self._receive_from_ws_task = util.create_task(
+                    websocket.receive_text(), router_id=self._router_id
+                )
+            else:
+                self._receive_from_ws_task = util.create_task(
+                    websocket.recv(), router_id=self._router_id
+                )
 
-        Used over directly awaiting a Future as it can't be a
-        coro using in create_task...
-
-        Even better, if you cancel this task which
-        is waiting for this then the whole thing fucking
-        falls apart and breaks and I don't know why
-        """
-        # TODO Figure out how to make closing WS work
-        #      / exiting on close. Thinking special queue item?
-        await self._close_future
+        if self._receive_from_queue_task is None:
+            self._receive_from_queue_task = util.create_task(
+                self._item_queue.get(), router_id=self._router_id
+            )
 
     async def _handle_pipe(self, websocket):
         try:
             while self.__is_open:
-                if self._using_fastapi_websockets:
-                    receive_task = util.create_task(websocket.receive_text())
-                else:
-                    receive_task = util.create_task(websocket.recv())
-                queue_task = util.create_task(self._send_queue.get())
-                response_task = util.create_task(self._response_queue.get())
-                # close_task = util.create_task(self._wait_for_close())
+                self._ensure_tasks_exist(websocket)
 
-                done, pending = await asyncio.wait(
-                    [
-                        receive_task,
-                        queue_task,
-                        response_task,
-                        # close_task,
-                    ],
+                done, pending = await asyncio.wait(  # noqa
+                    [self._receive_from_ws_task, self._receive_from_queue_task],
                     return_when=asyncio.FIRST_COMPLETED,
                 )
 
                 result = done.pop().result()
-                for future in pending:
-                    log.info("About to cancel %s", future)
-                    future.cancel()
-
-                if result == "CLOSE_FUTURE":
-                    # Kill the connection
-                    self.__is_open = False
-                    log.debug("Closing WS connection")
+                if not isinstance(result, tuple):
+                    log.debug("< Processing incoming websocket message")
+                    # This has been received from the WS
+                    self._receive_from_ws_task = None
+                    await self._resolve_future(result)
                     continue
 
-                if isinstance(result, tuple):
-                    log.debug("> Sending request down the pipe")
+                self._receive_from_queue_task = None
+                if result[0] == self._EXIT_LITERAL:
+                    # Kill the ws connection
+                    self._receive_from_ws_task = None
+
+                    self.__is_open = False
+                    log.debug("Closing WS connection to %s", self.__url)
+                    return self._EXIT_LITERAL
+
+                elif result[0] == "SEND_RESPONSE":
+                    log.debug("> Sending response to existing request")
                     await self._dispatch_future(websocket, result[1])
+
+                elif result[0] == "SEND_THEN_RECEIVE_RESPONSE":
+                    log.debug("> Sending request pending future response")
+                    await self._dispatch_future(websocket, result[1])
+
                 else:
-                    log.debug("< Handling response from up stream")
-                    await self._resolve_future(result)
+                    log.critical("Unhandled result: %s", result)
         except Exception as error:
             log.critical("%s", "".join(traceback.format_exception(error)))
 
-        print("Pipe closing")
-
     async def _dispatch_future(self, websocket: WebSocketClientProtocol, data: dict):
         """Given a future from the queue, send it down the pipe"""
+        if "packet_id" not in data:
+            log.debug("Failed to resolve send packet as it was missing an id: %s", data)
+            raise UnknownPacket
+
+        packet_id = data["packet_id"]
+        log.debug("> Sending packet %s", packet_id)
         if self._using_fastapi_websockets:
             await websocket.send_text(json.dumps(data))
         else:
@@ -250,7 +295,7 @@ class Router:
         packet_data = packet["data"]
 
         if packet["type"] == "response":
-            matching_future: asyncio.Future | None = self._futures.get(packet_id, None)
+            matching_future: asyncio.Future | None = self._futures.pop(packet_id, None)
             if matching_future is None:
                 raise UnknownPacket
 
@@ -268,5 +313,6 @@ class Router:
                 self._receive_handler(
                     packet_data,
                     partial(self.send_response, packet_id=packet["packet_id"]),
-                )
+                ),
+                router_id=self._router_id,
             )

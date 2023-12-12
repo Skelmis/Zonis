@@ -1,10 +1,12 @@
 import asyncio
+import logging
 
-background_tasks: set[asyncio.Task] = set()
+log = logging.getLogger(__name__)
+background_tasks: set[tuple[str, asyncio.Task]] = set()
 
 
-def create_task(*args, **kwargs) -> asyncio.Task:
+def create_task(*args, router_id: str, **kwargs) -> asyncio.Task:
     task = asyncio.create_task(*args, **kwargs)
-    background_tasks.add(task)
-    task.add_done_callback(background_tasks.discard)
+    background_tasks.add((router_id, task))
+    task.add_done_callback(lambda _: background_tasks.discard((router_id, task)))
     return task

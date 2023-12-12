@@ -9,6 +9,9 @@ from zonis.server import Server
 
 import logging
 
+logging.basicConfig(level=logging.CRITICAL)
+logging.getLogger("zonis").setLevel(level=logging.DEBUG)
+
 app = FastAPI()
 server = Server(using_fastapi_websockets=True)
 
@@ -48,4 +51,5 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         await asyncio.Future()
     except WebSocketDisconnect:
-        server.disconnect(identifier)
+        await server.disconnect(identifier)
+        print(f"Closed connection for {identifier}")
