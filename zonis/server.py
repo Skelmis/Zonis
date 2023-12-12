@@ -14,6 +14,7 @@ from zonis import (
     DuplicateConnection,
     DuplicateRoute,
     Router,
+    RouteHandler,
 )
 from zonis.packet import RequestPacket, IdentifyPacket
 from zonis.router import PacketT
@@ -21,7 +22,7 @@ from zonis.router import PacketT
 log = logging.getLogger(__name__)
 
 
-class Server:
+class Server(RouteHandler):
     """
     Parameters
     ----------
@@ -39,6 +40,7 @@ class Server:
         override_key: Optional[str] = None,
         secret_key: str = "",
     ) -> None:
+        super().__init__()
         self._connections: dict[str, Router] = {}
         self._secret_key: str = secret_key
         self._override_key: Optional[str] = (
@@ -48,7 +50,6 @@ class Server:
         self.using_fastapi_websockets: bool = using_fastapi_websockets
 
         self.__is_open = True
-        self._routes = {}
 
     async def disconnect(self, identifier: str) -> None:
         """Disconnect a client connection.
@@ -241,56 +242,3 @@ class Server:
             return identifier
         except Exception as e:
             raise BaseZonisException("Identify failed") from e
-
-    def route(self, route_name: Optional[str] = None):
-        """Turn an async function into a valid IPC route.
-
-        Parameters
-        ----------
-        route_name: Optional[str]
-            An optional name for this IPC route,
-            defaults to the name of the function.
-
-        Raises
-        ------
-        DuplicateRoute
-            A route with this name already exists
-
-        Notes
-        -----
-        If this is a method on a class, you will also
-        need to use the ``register_class_instance_for_routes``
-        method for this to work as an IPC route.
-        """
-
-        def decorator(func: Callable):
-            name = route_name or func.__name__
-            if name in self._routes:
-                raise DuplicateRoute
-
-            self._routes[name] = func
-            return func
-
-        return decorator
-
-    async def handle_client_requests(self):
-        while self.__is_open:
-            # TODO Break this out into tasks
-            d = await self._recv(self._connections["DEFAULT"])
-            packet: Packet = json.loads(d)
-            ws_type: Literal["CLIENT_REQUEST"] = packet["type"]
-            if ws_type != "CLIENT_REQUEST":
-                raise ValueError("Request imbalance, unhandled")
-
-            log.debug("Received %s event", ws_type)
-            data = packet["data"]
-            route_name = data["route"]
-
-            result = await self._routes[route_name](**data["arguments"])
-            await self._connections["DEFAULT"].send(
-                Packet(
-                    identifier="DEFAULT",
-                    type="CLIENT_REQUEST_RESPONSE",
-                    data=result,
-                )
-            )
