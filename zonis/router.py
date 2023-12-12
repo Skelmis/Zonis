@@ -263,6 +263,7 @@ class Router:
 
         packet_id = data["packet_id"]
         log.debug("> Sending packet %s", packet_id)
+        # TODO Make this extendable somehow, maybe an ABC passed through?
         if self._using_fastapi_websockets:
             await websocket.send_text(json.dumps(data))
         else:
