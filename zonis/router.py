@@ -24,7 +24,8 @@ class PacketT(t.TypedDict):
 
 
 # TODO Consider back pressure via queue limits to avoid/alert on congestion?
-# TODO Make program clean exit on Ctrl + C
+
+
 class Router:
     """A router class for enabling two-way communication down a single pipe.
 
@@ -77,16 +78,14 @@ class Router:
         await self._block_future
 
     async def connect_client(self, url: str, idp: IdentifyDataPacket) -> None:
-        """A non-blocking call which connects the underlying WS."""
+        """A blocking call which connects the underlying WS."""
+        log.debug("Initiating connection to %s with identity %s", url, idp)
         self._connection_future = asyncio.Future()
         self.__url = url
         self._ws_task = util.create_task(
             self._handle_ws(url, idp), router_id=self._router_id
         )
 
-        # TODO Handle IDENTIFY packets coming in
-        #      and ensure this method doesnt return
-        #      until the underlying ws is ready
         await self._connection_future
 
     async def connect_server(self, websocket) -> None:
@@ -100,8 +99,8 @@ class Router:
         self._item_queue.put_nowait((self._EXIT_LITERAL,))  # type: ignore
 
         # Let the event loop close the task by giving
-        # back control for a no-op
-        # TODO Remove?
+        # back control for a no-op. Not sure if this
+        # actually then kills the task or not but whatever
         await asyncio.sleep(0)
 
     async def send(self, data: dict) -> asyncio.Future:

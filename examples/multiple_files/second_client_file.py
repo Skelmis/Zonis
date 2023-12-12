@@ -1,4 +1,4 @@
-from zonis.client import route
+from zonis import route
 
 
 @route()

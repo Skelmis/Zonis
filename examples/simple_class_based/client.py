@@ -1,6 +1,10 @@
 import asyncio
+import logging
 
-from zonis.client import Client, route
+from zonis import Client, route
+
+logging.basicConfig(level=logging.CRITICAL)
+logging.getLogger("zonis").setLevel(level=logging.DEBUG)
 
 
 class Test:
@@ -17,7 +21,7 @@ async def main():
     client.register_class_instance_for_routes(Test(), "ping")
 
     await client.start()
-    await asyncio.Future()
+    await client.block_until_closed()
 
 
 asyncio.run(main())

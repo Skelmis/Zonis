@@ -1,6 +1,6 @@
 import asyncio
 
-from zonis.client import Client
+from zonis import Client
 
 
 async def main():
@@ -15,7 +15,7 @@ async def main():
         return "I am a client specific route on two"
 
     await client.start()
-    await asyncio.Future()
+    await client.block_until_closed()
 
 
 asyncio.run(main())

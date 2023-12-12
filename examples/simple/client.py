@@ -1,6 +1,6 @@
 import asyncio
 
-from zonis.client import Client
+from zonis import Client
 
 
 async def main():
@@ -12,8 +12,7 @@ async def main():
         return "pong"
 
     await client.start()
-    print("here")
-    await asyncio.Future()
+    await client.block_until_closed()
 
 
 asyncio.run(main())

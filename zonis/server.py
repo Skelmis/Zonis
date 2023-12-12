@@ -46,7 +46,6 @@ class Server(RouteHandler):
         self._override_key: Optional[str] = (
             override_key if override_key is not None else secrets.token_hex(64)
         )
-        self._callback = None
         self.using_fastapi_websockets: bool = using_fastapi_websockets
 
         self.__is_open = True
@@ -67,10 +66,6 @@ class Server(RouteHandler):
         """
         router = self._connections.pop(identifier)
         await router.close()
-
-    def register_request_callback(self, callback) -> None:
-        # TODO DOCO
-        self._callback = callback
 
     async def request(
         self, route: str, *, client_identifier: str = "DEFAULT", **kwargs
@@ -145,8 +140,7 @@ class Server(RouteHandler):
                         data=RequestPacket(route=route, arguments=kwargs),
                     )
                 )
-                d = await request_future
-                packet: Packet = json.loads(d)
+                packet: Packet = await request_future
                 if packet["type"] == "FAILURE_RESPONSE":
                     results[i] = RequestFailed(packet["data"])
                 else:
@@ -199,10 +193,10 @@ class Server(RouteHandler):
         DuplicateConnection
             Duplicate connection without override keys
         """
+        raw_packet = packet
+        packet = raw_packet["data"]
+        identifier: str = packet.get("identifier")
         try:
-            raw_packet = packet
-            packet = raw_packet["data"]
-            identifier: str = packet.get("identifier")
             ws_type: Literal["IDENTIFY"] = packet["type"]
             if ws_type != "IDENTIFY":
                 await websocket.close(
@@ -230,8 +224,7 @@ class Server(RouteHandler):
                 raise DuplicateConnection("Identify failed.")
 
             router: Router = Router(identifier, using_fastapi_websockets=True)
-            if self._callback is not None:
-                router.register_receiver(callback=self._callback)
+            router.register_receiver(callback=self._request_handler)
 
             await router.connect_server(websocket)
             self._connections[identifier] = router
@@ -241,4 +234,34 @@ class Server(RouteHandler):
             )
             return identifier
         except Exception as e:
+            self._connections.pop(identifier, None)
             raise BaseZonisException("Identify failed") from e
+
+    async def _request_handler(self, packet_data, resolution_handler):
+        data: RequestPacket = packet_data["data"]
+        route_name = data["route"]
+        if route_name not in self._routes:
+            await resolution_handler(
+                data=Packet(
+                    identifier="SERVER",
+                    type="FAILURE_RESPONSE",
+                    data=f"{route_name} is not a valid route name.",
+                )
+            )
+            return
+
+        if route_name in self._instance_mapping:
+            result = await self._routes[route_name](
+                self._instance_mapping[route_name],
+                **data["arguments"],
+            )
+        else:
+            result = await self._routes[route_name](**data["arguments"])
+
+        await resolution_handler(
+            data=Packet(
+                identifier="SERVER",
+                type="SUCCESS_RESPONSE",
+                data=result,
+            )
+        )

@@ -4,24 +4,12 @@ import json
 from fastapi import FastAPI
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
-from zonis import UnknownClient, BaseZonisException, RequestFailed
+from zonis import UnknownClient, BaseZonisException
 from zonis.server import Server
 
-import logging
-
-logging.basicConfig(level=logging.CRITICAL)
-logging.getLogger("zonis").setLevel(level=logging.DEBUG)
 
 app = FastAPI()
 server = Server(using_fastapi_websockets=True)
-
-
-async def callback(packet_data, callback):
-    print(packet_data)
-    await callback(data={"hello": "world"})
-
-
-server.register_request_callback(callback)
 
 
 @server.route()
@@ -42,11 +30,7 @@ async def index():
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     d: str = await websocket.receive_text()
-    try:
-        identifier = await server.parse_identify(json.loads(d), websocket)
-    except BaseZonisException:
-        print("WS failed to identify")
-        return
+    identifier = await server.parse_identify(json.loads(d), websocket)
 
     try:
         await asyncio.Future()

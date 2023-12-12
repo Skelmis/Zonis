@@ -1,49 +1,24 @@
 import asyncio
-import json
 import logging
+
 import signal
-from typing import Optional, Literal, Callable, Dict, Any
+from typing import Optional, Callable, Dict, Any
 
-import websockets
-from websockets.exceptions import WebSocketException, ConnectionClosed
 
-from zonis import Packet, DuplicateRoute, Router, RouteHandler
+from zonis import (
+    Packet,
+    Router,
+    RouteHandler,
+    UnknownPacket,
+    UnhandledWebsocketType,
+)
 from zonis.packet import (
-    custom_close_codes,
     RequestPacket,
     IdentifyDataPacket,
-    IdentifyPacket,
     ClientToServerPacket,
 )
 
 log = logging.getLogger(__name__)
-deferred_routes = {}
-
-
-def route(route_name: Optional[str] = None):
-    """Turn an async function into a valid IPC route.
-
-    Parameters
-    ----------
-    route_name: Optional[str]
-        An optional name for this IPC route,
-        defaults to the name of the function.
-
-    Raises
-    ------
-    DuplicateRoute
-        A route with this name already exists
-    """
-
-    def decorator(func: Callable):
-        name = route_name or func.__name__
-        if name in deferred_routes:
-            raise DuplicateRoute
-
-        deferred_routes[name] = func
-        return func
-
-    return decorator
 
 
 class Client(RouteHandler):
@@ -83,7 +58,6 @@ class Client(RouteHandler):
 
         self._secret_key: str = secret_key
         self._override_key: str = override_key
-        self._routes: Dict[str, Callable] = {}
         self.__is_open: bool = True
         self.__current_ws = None
         self.__task: Optional[asyncio.Task] = None
@@ -164,4 +138,22 @@ class Client(RouteHandler):
                 data=RequestPacket(route=route, arguments=kwargs),
             )
         )
-        return await request_future
+        data: Packet = await request_future
+        if "type" not in data:
+            log.debug("Failed to resolve packet type for %s", data)
+            raise UnknownPacket
+
+        if "data" not in data:
+            log.debug(
+                "Failed to resolve packet as it was missing the 'data' field: %s",
+                data,
+            )
+            raise UnknownPacket
+
+        if data["type"] != "SUCCESS_RESPONSE":
+            raise UnhandledWebsocketType(
+                f"Client.request expected a packet of type "
+                f"SUCCESS_RESPONSE. Received {data['type']}"
+            )
+
+        return data["data"]

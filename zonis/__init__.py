@@ -1,9 +1,9 @@
 from .packet import Packet, RequestPacket, ClientToServerPacket
 from .exceptions import *
-from .route_registration import RouteHandler
+from .route_registration import RouteHandler, route
 from .router import Router
 from .server import Server
-from .client import Client, route
+from .client import Client
 
 __all__ = (
     "RouteHandler",
