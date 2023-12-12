@@ -70,6 +70,7 @@ class RouteHandler:
             if name in self._routes:
                 raise DuplicateRoute
 
+            log.debug("Registered route %s for class %s", name, self.__class__.__name__)
             self._routes[name] = func
             return func
 
@@ -82,6 +83,7 @@ class RouteHandler:
             if k in self._routes:
                 raise DuplicateRoute
 
+            log.debug("Registered route %s for class %s", k, self.__class__.__name__)
             self._routes[k] = v
         deferred_routes = {}
 
