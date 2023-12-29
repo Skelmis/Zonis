@@ -15,6 +15,10 @@ Errors
 
 .. autoclass:: UnknownClient
 
+.. autoclass:: UnknownPacket
+
+.. autoclass:: MissingReceiveHandler
+
 .. autoclass:: RequestFailed
     :members:
     :undoc-members:

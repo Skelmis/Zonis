@@ -1,11 +1,17 @@
-Server
+Router
 ******
 
 .. currentmodule:: zonis
 
 .. autofunction:: route
 
-.. autoclass:: Server
+.. autoclass:: Router
+    :members:
+    :undoc-members:
+    :special-members: __init__
+    :inherited-members:
+
+.. autoclass:: RouteHandler
     :members:
     :undoc-members:
     :special-members: __init__

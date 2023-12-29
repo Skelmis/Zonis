@@ -2,7 +2,7 @@ import asyncio
 import logging
 
 import signal
-from typing import Optional, Callable, Dict, Any
+from typing import Optional, Dict, Any
 
 
 from zonis import (

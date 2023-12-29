@@ -23,9 +23,6 @@ class PacketT(t.TypedDict):
     data: dict
 
 
-# TODO Consider back pressure via queue limits to avoid/alert on congestion?
-
-
 class Router:
     """A router class for enabling two-way communication down a single pipe.
 
@@ -44,7 +41,7 @@ class Router:
         *,
         using_fastapi_websockets: bool = False,
         retry_on_exception: bool = True,
-        max_retries: int = 3
+        max_retries: int = 3,
     ):
         self._retry_on_exception: bool = retry_on_exception
         self._max_retries: int = max_retries
@@ -63,7 +60,7 @@ class Router:
         ] = asyncio.Queue()
         self._connection_future: asyncio.Future | None = None
         self._block_future: asyncio.Future = asyncio.Future()
-        self._using_fastapi_websockets: bool = using_fastapi_websockets
+        self._using_fastapi_websockets: bool = using_fastapi_websockets # TODO Phase this out
         self._receive_from_queue_task: asyncio.Task | None = None
         self._receive_from_ws_task: asyncio.Task | None = None
 
@@ -97,6 +94,7 @@ class Router:
         """Close the underlying WS"""
         log.debug("Closing WS connection to %s", self.__url)
         self._item_queue.put_nowait((self._EXIT_LITERAL,))  # type: ignore
+        self._check_for_congestion()
 
         # Let the event loop close the task by giving
         # back control for a no-op. Not sure if this
@@ -126,6 +124,7 @@ class Router:
                 {"packet_id": packet_id, "type": "request", "data": data},
             )
         )
+        self._check_for_congestion()
         log.debug("Queued item to send as a request for packet %s", packet_id)
         return future
 
@@ -144,6 +143,7 @@ class Router:
 
         packet: PacketT = {"type": "response", "packet_id": packet_id, "data": data}
         self._item_queue.put_nowait(("SEND_RESPONSE", packet))
+        self._check_for_congestion()
         log.debug("Queued item to send as a response for packet %s", packet_id)
 
     def register_receiver(self, callback) -> Router:
@@ -155,6 +155,9 @@ class Router:
         callback
             The callback to call with the packet data.
         """
+        if self._receive_handler is not None:
+            log.debug("Router overriding existing receive handler")
+
         self._receive_handler = callback
         return self
 
@@ -316,3 +319,10 @@ class Router:
                 ),
                 router_id=self._router_id,
             )
+
+    def _check_for_congestion(self):
+        """Checks if the queue appears congested and alerts"""
+        # 50 is an arb number I picked out of thin air
+        # Would love feedback on this size if it affects you a lot
+        if self._item_queue.qsize() > 50:
+            log.warning("Router queue size is over 50, possible congestion detected")
