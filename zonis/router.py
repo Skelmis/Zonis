@@ -32,6 +32,7 @@ class PacketT(t.TypedDict):
 # TODO Consider back pressure via queue limits to avoid/alert on congestion?
 # TODO Introduce default_client_factory to allow for custom WS impls
 
+
 class Router:
     """A router class for enabling two-way communication down a single pipe.
 
