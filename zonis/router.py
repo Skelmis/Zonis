@@ -11,13 +11,7 @@ from functools import partial
 import websockets.client
 from websockets.legacy.client import WebSocketClientProtocol
 
-from zonis import (
-    UnknownPacket,
-    MissingReceiveHandler,
-    util,
-    WebsocketProtocol,
-    Websockets,
-)
+from zonis import UnknownPacket, MissingReceiveHandler, util
 from zonis.packet import IdentifyPacket, IdentifyDataPacket
 
 log = logging.getLogger(__name__)
@@ -29,7 +23,6 @@ class PacketT(t.TypedDict):
     data: dict
 
 
-# TODO Consider back pressure via queue limits to avoid/alert on congestion?
 # TODO Introduce default_client_factory to allow for custom WS impls
 
 
@@ -51,7 +44,7 @@ class Router:
         websocket_connection: WebsocketProtocol | None,
         *,
         retry_on_exception: bool = True,
-        max_retries: int = 3
+        max_retries: int = 3,
     ):
         """
 
@@ -124,6 +117,7 @@ class Router:
         """Close the underlying WS"""
         log.debug("Closing WS connection to %s", self.__url)
         self._item_queue.put_nowait((self._EXIT_LITERAL,))  # type: ignore
+        self._check_for_congestion()
 
         # Let the event loop close the task by giving
         # back control for a no-op. Not sure if this
@@ -153,6 +147,7 @@ class Router:
                 {"packet_id": packet_id, "type": "request", "data": data},
             )
         )
+        self._check_for_congestion()
         log.debug("Queued item to send as a request for packet %s", packet_id)
         return future
 
@@ -171,6 +166,7 @@ class Router:
 
         packet: PacketT = {"type": "response", "packet_id": packet_id, "data": data}
         self._item_queue.put_nowait(("SEND_RESPONSE", packet))
+        self._check_for_congestion()
         log.debug("Queued item to send as a response for packet %s", packet_id)
 
     def register_receiver(self, callback) -> Router:
@@ -182,6 +178,9 @@ class Router:
         callback
             The callback to call with the packet data.
         """
+        if self._receive_handler is not None:
+            log.debug("Router overriding existing receive handler")
+
         self._receive_handler = callback
         return self
 
@@ -335,3 +334,10 @@ class Router:
                 ),
                 router_id=self._router_id,
             )
+
+    def _check_for_congestion(self):
+        """Checks if the queue appears congested and alerts"""
+        # 50 is an arb number I picked out of thin air
+        # Would love feedback on this size if it affects you a lot
+        if self._item_queue.qsize() > 50:
+            log.warning("Router queue size is over 50, possible congestion detected")

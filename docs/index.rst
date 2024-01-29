@@ -11,6 +11,8 @@ Agnostic IPC for your Python programs.
    modules/server.rst
    modules/errors.rst
    modules/meta.rst
+   modules/data.rst
+   modules/router.rst
 
 
 
