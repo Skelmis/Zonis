@@ -63,7 +63,7 @@ class Client(RouteHandler):
         self.__task: Optional[asyncio.Task] = None
         self._instance_mapping: Dict[str, Any] = {}
 
-        self.router: Router = Router(self.identifier).register_receiver(
+        self.router: Router = Router(self.identifier, None).register_receiver(
             self._request_handler
         )
 

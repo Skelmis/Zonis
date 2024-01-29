@@ -15,6 +15,7 @@ from zonis import (
     DuplicateRoute,
     Router,
     RouteHandler,
+    FastAPIWebsockets,
 )
 from zonis.packet import RequestPacket, IdentifyPacket
 from zonis.router import PacketT
@@ -223,10 +224,10 @@ class Server(RouteHandler):
                 )
                 raise DuplicateConnection("Identify failed.")
 
-            router: Router = Router(identifier, using_fastapi_websockets=True)
+            router: Router = Router(identifier, FastAPIWebsockets(websocket))
             router.register_receiver(callback=self._request_handler)
 
-            await router.connect_server(websocket)
+            await router.connect_server()
             self._connections[identifier] = router
             await router.send_response(
                 packet_id=raw_packet["packet_id"],

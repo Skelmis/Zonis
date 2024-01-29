@@ -11,7 +11,13 @@ from functools import partial
 import websockets.client
 from websockets.legacy.client import WebSocketClientProtocol
 
-from zonis import UnknownPacket, MissingReceiveHandler, util
+from zonis import (
+    UnknownPacket,
+    MissingReceiveHandler,
+    util,
+    WebsocketProtocol,
+    Websockets,
+)
 from zonis.packet import IdentifyPacket, IdentifyDataPacket
 
 log = logging.getLogger(__name__)
@@ -41,11 +47,34 @@ class Router:
     def __init__(
         self,
         identifier: str,
+        websocket_connection: WebsocketProtocol | None,
         *,
-        using_fastapi_websockets: bool = False,
         retry_on_exception: bool = True,
         max_retries: int = 3
     ):
+        """
+
+        Parameters
+        ----------
+        identifier: str
+            How this connection identifies itself.
+        websocket_connection: WebsocketProtocol
+            An implementation of the websocket protocol.
+
+            At this stage this only affects the Server,
+            Client's will always use Websockets
+        retry_on_exception: bool
+            On failure, give it another go
+        max_retries: int
+            Max times to retry on exception
+
+        Warnings
+        --------
+        websocket_connection should **only ever** be
+        None when called from Client. If you ever use this,
+        ensure it is passed or set before first usage.
+        """
+        self._websocket_connection: WebsocketProtocol | None = websocket_connection
         self._retry_on_exception: bool = retry_on_exception
         self._max_retries: int = max_retries
         self._attempted_connection_count: int = 0
@@ -63,7 +92,6 @@ class Router:
         ] = asyncio.Queue()
         self._connection_future: asyncio.Future | None = None
         self._block_future: asyncio.Future = asyncio.Future()
-        self._using_fastapi_websockets: bool = using_fastapi_websockets
         self._receive_from_queue_task: asyncio.Task | None = None
         self._receive_from_ws_task: asyncio.Task | None = None
 
@@ -88,10 +116,8 @@ class Router:
 
         await self._connection_future
 
-    async def connect_server(self, websocket) -> None:
-        self._ws_task = util.create_task(
-            self._handle_pipe(websocket), router_id=self._router_id
-        )
+    async def connect_server(self) -> None:
+        self._ws_task = util.create_task(self._handle_pipe(), router_id=self._router_id)
 
     async def close(self) -> None:
         """Close the underlying WS"""
@@ -176,13 +202,14 @@ class Router:
         ):
             try:
                 websocket = t.cast(WebSocketClientProtocol, websocket)
+                self._websocket_connection = Websockets(websocket)
                 # This is a task because sending is done within _handle_pipe
                 util.create_task(
                     self._handle_client_identify(idp), router_id=self._router_id
                 )
                 log.debug("Websocket opened to %s", url)
 
-                result = await self._handle_pipe(websocket)
+                result = await self._handle_pipe()
                 if result is not None and result == self._EXIT_LITERAL:
                     break
 
@@ -199,26 +226,21 @@ class Router:
 
         self._block_future.set_result(None)
 
-    def _ensure_tasks_exist(self, websocket):
+    def _ensure_tasks_exist(self):
         if self._receive_from_ws_task is None:
-            if self._using_fastapi_websockets:
-                self._receive_from_ws_task = util.create_task(
-                    websocket.receive_text(), router_id=self._router_id
-                )
-            else:
-                self._receive_from_ws_task = util.create_task(
-                    websocket.recv(), router_id=self._router_id
-                )
+            self._receive_from_ws_task = util.create_task(
+                self._websocket_connection.receive(), router_id=self._router_id
+            )
 
         if self._receive_from_queue_task is None:
             self._receive_from_queue_task = util.create_task(
                 self._item_queue.get(), router_id=self._router_id
             )
 
-    async def _handle_pipe(self, websocket):
+    async def _handle_pipe(self):
         try:
             while self.__is_open:
-                self._ensure_tasks_exist(websocket)
+                self._ensure_tasks_exist()
 
                 done, pending = await asyncio.wait(  # noqa
                     [self._receive_from_ws_task, self._receive_from_queue_task],
@@ -244,18 +266,18 @@ class Router:
 
                 elif result[0] == "SEND_RESPONSE":
                     log.debug("> Sending response to existing request")
-                    await self._dispatch_future(websocket, result[1])
+                    await self._dispatch_future(result[1])
 
                 elif result[0] == "SEND_THEN_RECEIVE_RESPONSE":
                     log.debug("> Sending request pending future response")
-                    await self._dispatch_future(websocket, result[1])
+                    await self._dispatch_future(result[1])
 
                 else:
                     log.critical("Unhandled result: %s", result)
         except Exception as error:
             log.critical("%s", "".join(traceback.format_exception(error)))
 
-    async def _dispatch_future(self, websocket: WebSocketClientProtocol, data: dict):
+    async def _dispatch_future(self, data: dict):
         """Given a future from the queue, send it down the pipe"""
         if "packet_id" not in data:
             log.debug("Failed to resolve send packet as it was missing an id: %s", data)
@@ -263,11 +285,7 @@ class Router:
 
         packet_id = data["packet_id"]
         log.debug("> Sending packet %s", packet_id)
-        # TODO Make this extendable somehow, maybe an ABC passed through?
-        if self._using_fastapi_websockets:
-            await websocket.send_text(json.dumps(data))
-        else:
-            await websocket.send(json.dumps(data))
+        await self._websocket_connection.send(json.dumps(data))
 
     async def _resolve_future(self, raw_packet: str | bytes | dict):
         """Given a packet received on the pipe, resolve it's associated future"""

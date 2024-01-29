@@ -1,3 +1,4 @@
+from .ws_impls import WebsocketProtocol, FastAPIWebsockets, Websockets
 from .packet import Packet, RequestPacket, ClientToServerPacket
 from .exceptions import *
 from .route_registration import RouteHandler, route
@@ -6,6 +7,9 @@ from .server import Server
 from .client import Client
 
 __all__ = (
+    "WebsocketProtocol",
+    "FastAPIWebsockets",
+    "Websockets",
     "RouteHandler",
     "Packet",
     "RequestPacket",
