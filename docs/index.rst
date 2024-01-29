@@ -10,6 +10,7 @@ Agnostic IPC for your Python programs.
    modules/client.rst
    modules/server.rst
    modules/errors.rst
+   modules/meta.rst
 
 
 

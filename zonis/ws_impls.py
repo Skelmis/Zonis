@@ -1,6 +1,7 @@
 from typing import Protocol, runtime_checkable
 
 
+# TODO Document these
 @runtime_checkable
 class WebsocketProtocol(Protocol):
     async def send(self, content: str) -> None:
