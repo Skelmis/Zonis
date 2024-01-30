@@ -11,7 +11,13 @@ from functools import partial
 import websockets.client
 from websockets.legacy.client import WebSocketClientProtocol
 
-from zonis import UnknownPacket, MissingReceiveHandler, util
+from zonis import (
+    UnknownPacket,
+    MissingReceiveHandler,
+    util,
+    WebsocketProtocol,
+    Websockets,
+)
 from zonis.packet import IdentifyPacket, IdentifyDataPacket
 
 log = logging.getLogger(__name__)
@@ -21,9 +27,6 @@ class PacketT(t.TypedDict):
     packet_id: str
     type: t.Literal["request", "response"]
     data: dict
-
-
-# TODO Introduce default_client_factory to allow for custom WS impls
 
 
 class Router:
@@ -45,6 +48,7 @@ class Router:
         *,
         retry_on_exception: bool = True,
         max_retries: int = 3,
+        default_client_websocket_factory: t.Type[WebsocketProtocol] = Websockets
     ):
         """
 
@@ -69,6 +73,9 @@ class Router:
         ensure it is passed or set before first usage.
         """
         self._websocket_connection: WebsocketProtocol | None = websocket_connection
+        self._default_client_websocket_factory: t.Type[
+            WebsocketProtocol
+        ] = default_client_websocket_factory
         self._retry_on_exception: bool = retry_on_exception
         self._max_retries: int = max_retries
         self._attempted_connection_count: int = 0
@@ -202,7 +209,9 @@ class Router:
         ):
             try:
                 websocket = t.cast(WebSocketClientProtocol, websocket)
-                self._websocket_connection = Websockets(websocket)
+                self._websocket_connection = self._default_client_websocket_factory(
+                    websocket
+                )
                 # This is a task because sending is done within _handle_pipe
                 util.create_task(
                     self._handle_client_identify(idp), router_id=self._router_id

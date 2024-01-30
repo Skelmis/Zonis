@@ -1,4 +1,3 @@
-import json
 import logging
 import secrets
 import traceback
@@ -12,7 +11,6 @@ from zonis import (
     RequestFailed,
     BaseZonisException,
     DuplicateConnection,
-    DuplicateRoute,
     Router,
     RouteHandler,
     FastAPIWebsockets,

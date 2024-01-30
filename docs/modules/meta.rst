@@ -9,7 +9,8 @@ Other References
 
 .. autoclass:: FastAPIWebsockets
     :members:
-
+    :undoc-members:
 
 .. autoclass:: Websockets
     :members:
+    :undoc-members:

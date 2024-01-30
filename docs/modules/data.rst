@@ -3,7 +3,7 @@ Packet data structures
 
 At the router level:
 
-.. code-block:: json
+.. code-block:: text
 
     {
         "packet_id": "str",

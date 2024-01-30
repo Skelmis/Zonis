@@ -1,9 +1,13 @@
 from typing import Protocol, runtime_checkable
 
 
-# TODO Document these
 @runtime_checkable
 class WebsocketProtocol(Protocol):
+    """The protocol underlying websockets should be exposed via."""
+
+    def __init__(self, ws):
+        raise NotImplementedError
+
     async def send(self, content: str) -> None:
         """Send a message down the wire.
 
@@ -26,6 +30,8 @@ class WebsocketProtocol(Protocol):
 
 
 class FastAPIWebsockets:
+    """A websocket implementation wrapping FastAPI websockets"""
+
     def __init__(self, ws):
         self.ws = ws
 
@@ -37,6 +43,8 @@ class FastAPIWebsockets:
 
 
 class Websockets:
+    """A websocket implementation wrapping the websockets library"""
+
     def __init__(self, ws):
         self.ws = ws
 

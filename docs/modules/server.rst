@@ -3,8 +3,6 @@ Server
 
 .. currentmodule:: zonis
 
-.. autofunction:: route
-
 .. autoclass:: Server
     :members:
     :undoc-members:
