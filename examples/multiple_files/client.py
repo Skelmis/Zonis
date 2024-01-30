@@ -14,7 +14,7 @@ async def main():
         return "pong"
 
     await client.start()
-    await asyncio.Future()
+    await client.block_until_closed()
 
 
 asyncio.run(main())

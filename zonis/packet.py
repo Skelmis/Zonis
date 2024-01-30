@@ -15,7 +15,14 @@ custom_close_codes: Dict[int, Type[BaseZonisException]] = {
 
 class Packet(TypedDict):
     data: Any
-    type: Literal["IDENTIFY", "REQUEST", "SUCCESS_RESPONSE", "FAILURE_RESPONSE"]
+    type: Literal[
+        "IDENTIFY",
+        "REQUEST",
+        "SUCCESS_RESPONSE",
+        "FAILURE_RESPONSE",
+        "CLIENT_REQUEST",
+        "CLIENT_REQUEST_RESPONSE",
+    ]
     identifier: str
 
 
@@ -33,3 +40,9 @@ class IdentifyPacket(TypedDict):
     identifier: str
     type: Literal["IDENTIFY"]
     data: IdentifyDataPacket
+
+
+class ClientToServerPacket(TypedDict):
+    identifier: str
+    type: Literal["CLIENT_REQUEST"]
+    data: RequestPacket

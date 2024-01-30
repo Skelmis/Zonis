@@ -4,7 +4,7 @@ import json
 from fastapi import FastAPI
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
-from zonis import UnknownClient, BaseZonisException
+from zonis import UnknownClient
 from zonis.server import Server
 
 app = FastAPI()
@@ -33,13 +33,10 @@ async def index():
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     d: str = await websocket.receive_text()
-    try:
-        identifier = await server.parse_identify(json.loads(d), websocket)
-    except BaseZonisException:
-        print("WS failed to identify")
-        return
+    identifier = await server.parse_identify(json.loads(d), websocket)
 
     try:
         await asyncio.Future()
     except WebSocketDisconnect:
-        server.disconnect(identifier)
+        await server.disconnect(identifier)
+        print(f"Closed connection for {identifier}")

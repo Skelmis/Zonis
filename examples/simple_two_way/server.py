@@ -4,11 +4,17 @@ import json
 from fastapi import FastAPI
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
-from zonis import UnknownClient
+from zonis import UnknownClient, BaseZonisException
 from zonis.server import Server
+
 
 app = FastAPI()
 server = Server(using_fastapi_websockets=True)
+
+
+@server.route()
+async def ping():
+    return "Server pong"
 
 
 @app.get("/")

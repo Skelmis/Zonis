@@ -1,8 +1,7 @@
-import json
 import logging
 import secrets
 import traceback
-from typing import Dict, Literal, Any, cast, Optional
+from typing import Dict, Literal, Any, cast, Optional, Callable
 
 from websockets.exceptions import ConnectionClosedOK, ConnectionClosedError
 
@@ -12,13 +11,17 @@ from zonis import (
     RequestFailed,
     BaseZonisException,
     DuplicateConnection,
+    Router,
+    RouteHandler,
+    FastAPIWebsockets,
 )
 from zonis.packet import RequestPacket, IdentifyPacket
+from zonis.router import PacketT
 
 log = logging.getLogger(__name__)
 
 
-class Server:
+class Server(RouteHandler):
     """
     Parameters
     ----------
@@ -36,14 +39,17 @@ class Server:
         override_key: Optional[str] = None,
         secret_key: str = "",
     ) -> None:
-        self._connections = {}
+        super().__init__()
+        self._connections: dict[str, Router] = {}
         self._secret_key: str = secret_key
         self._override_key: Optional[str] = (
             override_key if override_key is not None else secrets.token_hex(64)
         )
         self.using_fastapi_websockets: bool = using_fastapi_websockets
 
-    def disconnect(self, identifier: str) -> None:
+        self.__is_open = True
+
+    async def disconnect(self, identifier: str) -> None:
         """Disconnect a client connection.
 
         Parameters
@@ -56,28 +62,9 @@ class Server:
         This doesn't yet tell the client to stop
         gracefully, this just removes it from our store.
 
-        Warnings
-        --------
-        This doesn't yet actually close the WS.
         """
-        self._connections.pop(identifier, None)
-
-    async def _send(self, content: str, conn) -> None:
-        if self.using_fastapi_websockets:
-            await conn.send_text(content)
-        else:
-            await conn.send(content)
-
-    async def _recv(self, conn) -> str:
-        if self.using_fastapi_websockets:
-            from starlette.websockets import WebSocketDisconnect
-
-            try:
-                return await conn.receive_text()
-            except WebSocketDisconnect:
-                raise RequestFailed("Websocket disconnected while waiting for receive.")
-
-        return await conn.recv()
+        router = self._connections.pop(identifier)
+        await router.close()
 
     async def request(
         self, route: str, *, client_identifier: str = "DEFAULT", **kwargs
@@ -110,18 +97,14 @@ class Server:
         if not conn:
             raise UnknownClient
 
-        await self._send(
-            json.dumps(
-                Packet(
-                    identifier=client_identifier,
-                    type="REQUEST",
-                    data=RequestPacket(route=route, arguments=kwargs),
-                )
-            ),
-            conn,
+        request_future = await conn.send(
+            Packet(
+                identifier=client_identifier,
+                type="REQUEST",
+                data=RequestPacket(route=route, arguments=kwargs),
+            )
         )
-        d = await self._recv(conn)
-        packet: Packet = json.loads(d)
+        packet = await request_future
         if packet["type"] == "FAILURE_RESPONSE":
             raise RequestFailed(packet["data"])
 
@@ -149,18 +132,14 @@ class Server:
 
         for i, conn in self._connections.items():
             try:
-                await self._send(
-                    json.dumps(
-                        Packet(
-                            identifier=i,
-                            type="REQUEST",
-                            data=RequestPacket(route=route, arguments=kwargs),
-                        )
-                    ),
-                    conn,
+                request_future = await conn.send(
+                    Packet(
+                        identifier=i,
+                        type="REQUEST",
+                        data=RequestPacket(route=route, arguments=kwargs),
+                    )
                 )
-                d = await self._recv(conn)
-                packet: Packet = json.loads(d)
+                packet: Packet = await request_future
                 if packet["type"] == "FAILURE_RESPONSE":
                     results[i] = RequestFailed(packet["data"])
                 else:
@@ -191,7 +170,7 @@ class Server:
 
         return results
 
-    async def parse_identify(self, packet: Packet, websocket) -> str:
+    async def parse_identify(self, packet: PacketT, websocket) -> str:
         """Parse a packet to establish a new valid client connection.
 
         Parameters
@@ -213,8 +192,10 @@ class Server:
         DuplicateConnection
             Duplicate connection without override keys
         """
+        raw_packet = packet
+        packet = raw_packet["data"]
+        identifier: str = packet.get("identifier")
         try:
-            identifier: str = packet.get("identifier")
             ws_type: Literal["IDENTIFY"] = packet["type"]
             if ws_type != "IDENTIFY":
                 await websocket.close(
@@ -241,11 +222,45 @@ class Server:
                 )
                 raise DuplicateConnection("Identify failed.")
 
-            self._connections[identifier] = websocket
-            await self._send(
-                json.dumps(Packet(identifier=identifier, type="IDENTIFY", data=None)),
-                websocket,
+            router: Router = Router(identifier, FastAPIWebsockets(websocket))
+            router.register_receiver(callback=self._request_handler)
+
+            await router.connect_server()
+            self._connections[identifier] = router
+            await router.send_response(
+                packet_id=raw_packet["packet_id"],
+                data=Packet(identifier=identifier, type="IDENTIFY", data=None),
             )
             return identifier
         except Exception as e:
+            self._connections.pop(identifier, None)
             raise BaseZonisException("Identify failed") from e
+
+    async def _request_handler(self, packet_data, resolution_handler):
+        data: RequestPacket = packet_data["data"]
+        route_name = data["route"]
+        if route_name not in self._routes:
+            await resolution_handler(
+                data=Packet(
+                    identifier="SERVER",
+                    type="FAILURE_RESPONSE",
+                    data=f"{route_name} is not a valid route name.",
+                )
+            )
+            return
+
+        if route_name in self._instance_mapping:
+            result = await self._routes[route_name](
+                self._instance_mapping[route_name],
+                **data["arguments"],
+            )
+        else:
+            result = await self._routes[route_name](**data["arguments"])
+
+        await resolution_handler(
+            data=Packet(
+                identifier="SERVER",
+                type="SUCCESS_RESPONSE",
+                data=result,
+            )
+        )

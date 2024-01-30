@@ -11,6 +11,10 @@ class BaseZonisException(Exception):
         return self.message
 
 
+class MissingReceiveHandler(BaseZonisException):
+    """Cannot handle incoming requests due to a lack of receive handlers."""
+
+
 class DuplicateConnection(BaseZonisException):
     """You have attempted to connect with a duplicated identifier.
     Please try again with a unique one or provide the correct override key."""
@@ -31,6 +35,10 @@ class UnknownRoute(BaseZonisException):
 
 class UnknownClient(BaseZonisException):
     """The client you requested is not currently connected."""
+
+
+class UnknownPacket(BaseZonisException):
+    """Router received a packet without a known handler."""
 
 
 class RequestFailed(BaseZonisException):

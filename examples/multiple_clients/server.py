@@ -30,7 +30,7 @@ async def one():
 
 
 @app.get("/two")
-async def one():
+async def two():
     try:
         response = await server.request("two", client_identifier="two")
         return {"data": response}
@@ -42,13 +42,10 @@ async def one():
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     d: str = await websocket.receive_text()
-    try:
-        identifier = await server.parse_identify(json.loads(d), websocket)
-    except BaseZonisException:
-        print("WS failed to identify")
-        return
+    identifier = await server.parse_identify(json.loads(d), websocket)
 
     try:
         await asyncio.Future()
     except WebSocketDisconnect:
-        server.disconnect(identifier)
+        await server.disconnect(identifier)
+        print(f"Closed connection for {identifier}")
