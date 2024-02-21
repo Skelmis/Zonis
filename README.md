@@ -19,3 +19,9 @@ sphinx-autobuild -a docs docs/_build/html --watch zonis
 
 this will build the docs and start a local server; additionally it will listed for changes to the source directory ``zonis`` and to the docs source directory ``docs/``.
 You can find the builded files at ``docs/_build``.
+
+---
+
+### Support
+
+Want realtime help? Join the discord [here](https://discord.gg/BqPNSH2jPg).
