@@ -48,7 +48,7 @@ class Router:
         *,
         retry_on_exception: bool = True,
         max_retries: int = 3,
-        default_client_websocket_factory: t.Type[WebsocketProtocol] = Websockets
+        default_client_websocket_factory: t.Type[WebsocketProtocol] = Websockets,
     ):
         """
 

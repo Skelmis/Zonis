@@ -76,6 +76,50 @@ class RouteHandler:
 
         return decorator
 
+    def add_route(self, *, route_name: str, callback) -> RouteHandler:
+        """Programmatically adds a route.
+
+        Parameters
+        ----------
+        route_name: str
+            The name of the route.
+        callback
+            The callback attached to the route.
+
+        Returns
+        -------
+        RouteHandler
+            Returns the current instance for method chaining.
+        """
+        if route_name in self._routes:
+            raise DuplicateRoute
+
+        log.debug("Registered route %s ", route_name)
+        self._routes[route_name] = callback
+        return self
+
+    def remove_route(self, route_name: str) -> RouteHandler:
+        """Programmatically removes a route.
+
+        Parameters
+        ----------
+        route_name: str
+            The route to remove
+
+        Returns
+        -------
+        RouteHandler
+            Returns the current instance for method chaining.
+
+        Notes
+        -----
+        Raises no error if the route doesn't exist.
+        """
+        if route_name in self._routes:
+            self._routes.pop(route_name)
+
+        return self
+
     def load_routes(self) -> None:
         """Loads all decorated routes."""
         global deferred_routes
